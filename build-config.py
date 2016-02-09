@@ -3,9 +3,11 @@
 """Build NGINX config for DCOS automatic load balancing."""
 
 __author__ = 'David Parrish <david@dparrish.com>'
+__author__ = 'Travis B. Hartwell <thartwell@contractor.basho.com>'
 
 from jinja2 import Template
 import json
+import os
 import requests
 import subprocess
 import sys
@@ -15,74 +17,68 @@ import socket
 
 TEMPLATE="""
 server {
-        listen 80 default_server;
-        server_name _; # This is just an invalid value which will never trigger on a real hostname.
-        error_log /proc/self/fd/2;
-        access_log /proc/self/fd/1;
-        return 503;
-}
+    listen 80 default_server;
+    listen [::]:80 default_server ipv6only=on;
 
-{% for hostname, vhost in vhosts.items() %}
-    upstream {{ hostname }} {
-        {% for host in vhost.backends %}
-            server {{ host }};
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+
+    # Make site accessible from http://localhost/
+    server_name localhost;
+
+    # We're running in a Docker container, so output logs to stderr and stdout
+    error_log /proc/self/fd/2;
+    access_log /proc/self/fd/1;
+
+    location ^~ /service/ {
+        {% for appId, hostPort in apps|dictsort %}
+        location ~* /service{{ appId }} {
+            rewrite /service{{ appId }}/(.*) /$1  break;
+            proxy_pass http://{{ hostPort }};
+        }
         {% endfor %}
     }
 
-    server {
-        listen  80;
-        gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
-
-        server_name {{ hostname }};
-
-        proxy_buffering off;
-        error_log /proc/self/fd/2;
-        access_log /proc/self/fd/1;
-
-        location / {
-            proxy_pass http://{{ hostname }};
-            include /etc/nginx/proxy_params;
-            # HTTP 1.1 support
-            proxy_http_version 1.1;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Upgrade $http_upgrade;
-        }
+    location / {
+        # First attempt to serve request as file, then
+        # as directory, then fall back to displaying a 404.
+        try_files $uri $uri/ =404;
+        # Uncomment to enable naxsi on this location
+        # include /etc/nginx/naxsi.rules
     }
-{% endfor %}
+}
 """
 
 def main(argv):
     try:
+        marathon_url = os.environ.get("MARATHON_URL", "http://leader.mesos:8080")
         old_config = None
         while True:
             params = {
-                'vhosts': {},
+                'apps': {},
             }
 
             s = requests.Session()
-            apps = json.loads(s.get('http://master.mesos:8080/v2/apps').text)
+            apps = json.loads(s.get('%s/v2/apps' % marathon_url).text)
             for app in apps['apps']:
-                try:
-                    vhost = app['labels']['VIRTUAL_HOST']
-                except KeyError:
-                    continue
-                tasks = json.loads(s.get('http://master.mesos:8080/v2/apps%s/tasks' % app['id'],
+                tasks = json.loads(s.get('%s/v2/apps%s/tasks' % (marathon_url, app['id']),
                                          headers={'Accept': 'application/json'}).text)
-                backends = []
-                for task in tasks['tasks']:
-                    try:
-                        ip = socket.gethostbyname(task['host'])
-                    except socket.gaierror:
-                        print "Can't look up host %s" % task['host']
-                        continue
-                    backends.append('%s:%s' % (ip, task['ports'][0]))
-                if backends:
-                    params['vhosts'][vhost] = {
-                        'backends': backends,
-                    }
+                hostPort = None
+                # Assume only one task
+                task = tasks['tasks'][0]
+                try:
+                    ip = socket.gethostbyname(task['host'])
+                except socket.gaierror:
+                    print "Can't look up host %s" % task['host']
+                else:
+                    hostPort = "%s:%s" % (ip, task['ports'][0])
+
+                if hostPort:
+                    params['apps'][app['id']] = hostPort
 
             template = Template(TEMPLATE)
             new_config = template.render(params)
+
             if new_config != old_config:
                 with file('/etc/nginx/sites-available/default', 'w') as fh:
                     fh.write(new_config)
