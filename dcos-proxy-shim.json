@@ -6,7 +6,7 @@
     "container": {
         "type": "DOCKER",
         "docker": {
-            "image": "basho-labs/dcos-proxy-shim",
+            "image": "basho/dcos-proxy-shim",
             "network": "BRIDGE",
             "portMappings": [
                 { "containerPort": 80, "hostPort": 0 }
