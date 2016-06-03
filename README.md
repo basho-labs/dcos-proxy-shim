@@ -8,7 +8,7 @@ It is based on the code from the
 [dcos-proxy project by dparrish](https://github.com/dparrish/dcos-proxy), but
 modified for this specific use case.
 
-There is a sample JSON file to use for deployment that must be used against the
+Use the [sample JSON file](dcos-proxy-shim.json) for deployment against the
 Marathon HTTP API, as this piece is necessary for DCOS cli itself to work.
 
 ```
@@ -23,3 +23,5 @@ dcos set core.dcos_url "http://$(curl -s http://MARATHON_HOST:8080/v2/apps/dcos-
 
 The refresh job runs every 10 seconds, looking at all your apps, and creating a proxy entry
 directed to the first port supplied.
+
+This is available as a Docker image on [Docker Hub](https://hub.docker.com/r/basho/dcos-proxy-shim/).
