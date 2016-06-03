@@ -8,7 +8,7 @@ It is based on the code from the
 [dcos-proxy project by dparrish](https://github.com/dparrish/dcos-proxy), but
 modified for this specific use case.
 
-Use the [sample JSON file](dcos-proxy-shim.json) for deployment against the
+Use the [sample JSON file](https://github.com/basho-labs/dcos-proxy-shim/blob/master/dcos-proxy-shim.json) for deployment against the
 Marathon HTTP API, as this piece is necessary for DCOS cli itself to work.
 
 ```
